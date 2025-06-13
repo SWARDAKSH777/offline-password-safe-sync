@@ -265,6 +265,13 @@ export class AadhaarService {
         .toUpperCase();
     }
 
+    console.log('Final parsed details:', {
+      name: details.name,
+      aadhaarNumber: details.aadhaarNumber ? `****${details.aadhaarNumber.slice(-4)}` : 'Not found',
+      dob: details.dob,
+      gender: details.gender
+    });
+
     return details;
   }
 

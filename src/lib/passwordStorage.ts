@@ -1,5 +1,5 @@
 import { EncryptionService, EncryptionKey } from './encryption';
-import { AadhaarService, AadhaarDetails, EncryptedAadhaarData } from './aadhaarService';
+import { AadhaarService, AadhaarDetails } from './aadhaarService';
 
 export interface Password {
   id: string;
@@ -16,7 +16,6 @@ export interface Password {
 export interface PasswordVault {
   passwords: Password[];
   lastSync: number;
-  aadhaarData?: EncryptedAadhaarData;
   userEmail?: string;
 }
 
@@ -73,7 +72,6 @@ export class PasswordStorageService {
       return {
         passwords: Array.isArray(vault.passwords) ? vault.passwords : [],
         lastSync: vault.lastSync || Date.now(),
-        aadhaarData: vault.aadhaarData,
         userEmail: vault.userEmail
       };
     } catch (error) {
@@ -95,23 +93,32 @@ export class PasswordStorageService {
     }
   }
 
-  static async saveAadhaarToVault(userId: string, aadhaarDetails: AadhaarDetails, userEmail: string, encryptionKey: EncryptionKey): Promise<void> {
-    const vault = this.getVault(userId, encryptionKey);
-    vault.aadhaarData = await AadhaarService.encryptAadhaarDetails(aadhaarDetails);
-    vault.userEmail = userEmail;
-    this.saveVault(userId, vault, encryptionKey);
+  static async saveAadhaarToVault(
+    userId: string, 
+    aadhaarDetails: AadhaarDetails, 
+    userEmail: string, 
+    encryptionKey: EncryptionKey
+  ): Promise<void> {
+    try {
+      // Store Aadhaar recovery data on server
+      await AadhaarService.storeAadhaarRecovery(userEmail, aadhaarDetails, encryptionKey);
+      
+      // Update local vault with user email
+      const vault = this.getVault(userId, encryptionKey);
+      vault.userEmail = userEmail;
+      this.saveVault(userId, vault, encryptionKey);
+      
+      console.log('Aadhaar recovery setup completed');
+    } catch (error) {
+      console.error('Error setting up Aadhaar recovery:', error);
+      throw error;
+    }
   }
 
   static async getAadhaarFromVault(userId: string, encryptionKey: EncryptionKey): Promise<AadhaarDetails | null> {
-    const vault = this.getVault(userId, encryptionKey);
-    if (!vault.aadhaarData) return null;
-    
-    try {
-      return await AadhaarService.decryptAadhaarDetails(vault.aadhaarData);
-    } catch (error) {
-      console.error('Error decrypting Aadhaar data:', error);
-      return null;
-    }
+    // This method is now deprecated as Aadhaar data is stored on server
+    console.warn('getAadhaarFromVault is deprecated. Aadhaar data is now stored securely on server.');
+    return null;
   }
 
   static exportVault(userId: string, encryptionKey: EncryptionKey): void {

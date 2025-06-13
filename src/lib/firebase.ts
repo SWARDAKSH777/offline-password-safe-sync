@@ -25,6 +25,7 @@ googleProvider.addScope('https://www.googleapis.com/auth/userinfo.email');
 
 // Set custom parameters to force account selection and consent
 googleProvider.setCustomParameters({
-  prompt: 'consent',
-  access_type: 'offline'
+  prompt: 'select_account consent',
+  access_type: 'offline',
+  include_granted_scopes: 'true'
 });

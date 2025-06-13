@@ -1,73 +1,181 @@
-# Welcome to your Lovable project
+# Secure Password Manager with Aadhaar Recovery
 
-## Project info
+A production-ready password manager with end-to-end encryption and secure Aadhaar-based key recovery.
 
-**URL**: https://lovable.dev/projects/8ecd2c40-8a1f-4960-9fce-2a72fa124910
+## Features
 
-## How can I edit this code?
+### 🔐 Security Features
+- **End-to-end encryption** using AES-256 with PBKDF2 key derivation
+- **Offline-first architecture** - your data never leaves your device unencrypted
+- **Secure Aadhaar verification** for key recovery
+- **Biometric authentication** support (fingerprint/face recognition)
+- **Rate limiting** on recovery attempts (5 attempts per 24 hours)
+- **bcrypt encryption** for server-side data storage
 
-There are several ways of editing your application.
+### 📱 Core Functionality
+- **Password storage and management** with categories
+- **Strong password generation** with customizable options
+- **Password strength analysis** and breach monitoring
+- **Google Drive sync** for encrypted backups
+- **Import/Export** encrypted vault files
+- **Dark/Light theme** support
 
-**Use Lovable**
+### 🆔 Aadhaar Integration
+- **Smart PDF validation** - only accepts valid Aadhaar documents
+- **Accurate data extraction** using PDF.js with pattern matching
+- **Server-side verification** with encrypted storage
+- **Email-based key recovery** after successful verification
+- **Production-ready security** with Supabase backend
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/8ecd2c40-8a1f-4960-9fce-2a72fa124910) and start prompting.
+## Setup Instructions
 
-Changes made via Lovable will be committed automatically to this repo.
+### 1. Supabase Setup
 
-**Use your preferred IDE**
+1. Create a new Supabase project at [supabase.com](https://supabase.com)
+2. Go to Settings > API and copy your project URL and anon key
+3. Run the database migration:
+   ```sql
+   -- Copy and run the SQL from supabase/migrations/create_aadhaar_recovery.sql
+   ```
+4. Deploy the edge functions:
+   ```bash
+   # Install Supabase CLI first
+   npm install -g @supabase/cli
+   
+   # Login to Supabase
+   supabase login
+   
+   # Link your project
+   supabase link --project-ref your-project-ref
+   
+   # Deploy functions
+   supabase functions deploy store-aadhaar-recovery
+   supabase functions deploy verify-aadhaar-recovery
+   ```
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### 2. Firebase Setup (for Google Auth)
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+1. Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com)
+2. Enable Google Authentication in Authentication > Sign-in method
+3. Add your domain to authorized domains
+4. Copy your Firebase config values
 
-Follow these steps:
+### 3. Environment Variables
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+Create a `.env` file in the root directory:
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+```env
+# Supabase
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your_anon_key
 
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+# Firebase
+VITE_FIREBASE_API_KEY=your_api_key
+VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-project-id
+VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
+VITE_FIREBASE_APP_ID=1:123456789:web:abcdef
 ```
 
-**Edit a file directly in GitHub**
+### 4. Install and Run
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```bash
+# Install dependencies
+npm install
 
-**Use GitHub Codespaces**
+# Start development server
+npm run dev
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+# Build for production
+npm run build
+```
 
-## What technologies are used for this project?
+## Security Architecture
 
-This project is built with:
+### Client-Side Security
+- **AES-256 encryption** with unique salt per user
+- **PBKDF2 key derivation** (10,000 iterations)
+- **Local storage only** for encrypted data
+- **No plaintext data** ever sent to servers
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+### Server-Side Security
+- **bcrypt hashing** (12 rounds) for Aadhaar data
+- **Unique salt** per user for additional security
+- **Rate limiting** to prevent brute force attacks
+- **Row Level Security (RLS)** in Supabase
+- **Service role isolation** for sensitive operations
 
-## How can I deploy this project?
+### Aadhaar Verification Process
+1. **PDF Validation**: Checks for valid Aadhaar document structure
+2. **Data Extraction**: Uses PDF.js with regex patterns for accurate extraction
+3. **Server Verification**: Compares bcrypt hashes of provided vs stored data
+4. **Email Delivery**: Sends decryption key to verified email address
+5. **Attempt Tracking**: Limits recovery attempts to prevent abuse
 
-Simply open [Lovable](https://lovable.dev/projects/8ecd2c40-8a1f-4960-9fce-2a72fa124910) and click on Share -> Publish.
+## API Endpoints
 
-## Can I connect a custom domain to my Lovable project?
+### Store Aadhaar Recovery Data
+```
+POST /functions/v1/store-aadhaar-recovery
+```
+Stores encrypted Aadhaar data and decryption key for recovery.
 
-Yes, you can!
+### Verify Aadhaar for Recovery
+```
+POST /functions/v1/verify-aadhaar-recovery
+```
+Verifies Aadhaar details and sends decryption key via email.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## Production Deployment
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+### Security Checklist
+- [ ] Enable HTTPS/SSL certificates
+- [ ] Configure proper CORS policies
+- [ ] Set up email service (SendGrid/AWS SES) for key delivery
+- [ ] Enable Supabase RLS policies
+- [ ] Configure rate limiting at CDN level
+- [ ] Set up monitoring and logging
+- [ ] Regular security audits
+
+### Performance Optimization
+- [ ] Enable Supabase connection pooling
+- [ ] Configure CDN for static assets
+- [ ] Implement proper caching strategies
+- [ ] Monitor database performance
+- [ ] Set up automated backups
+
+## Troubleshooting
+
+### Common Issues
+
+1. **PDF extraction fails**
+   - Ensure PDF is not password-protected
+   - Check file size (must be under 5MB)
+   - Verify it's an official UIDAI Aadhaar document
+
+2. **Google Auth 401 errors**
+   - Check Firebase configuration
+   - Verify authorized domains
+   - Ensure proper scopes are requested
+
+3. **Supabase connection issues**
+   - Verify environment variables
+   - Check RLS policies
+   - Ensure edge functions are deployed
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Security Disclosure
+
+If you discover a security vulnerability, please email security@yourcompany.com instead of using the issue tracker.

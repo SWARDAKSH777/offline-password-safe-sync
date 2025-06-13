@@ -1,13 +1,12 @@
-
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Key, Shield, AlertTriangle, ArrowLeft, Trash2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Key, Shield, AlertTriangle, ArrowLeft, Trash2, Mail, ExternalLink } from 'lucide-react';
 import AadhaarVerification from './AadhaarVerification';
-import { AadhaarDetails } from '@/lib/aadhaarService';
+import { AadhaarDetails, AadhaarService } from '@/lib/aadhaarService';
 import { useAuth } from './AuthProvider';
 import { useToast } from '@/hooks/use-toast';
-import { EncryptionService } from '@/lib/encryption';
-import { PasswordStorageService } from '@/lib/passwordStorage';
 
 interface LostKeyPageProps {
   onBack: () => void;
@@ -20,8 +19,18 @@ const LostKeyPage: React.FC<LostKeyPageProps> = ({ onBack, onKeyRecovered }) => 
   const [showAadhaarVerification, setShowAadhaarVerification] = useState(false);
   const [recoveryMethod, setRecoveryMethod] = useState<'recover' | 'generate' | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [userEmail, setUserEmail] = useState(user?.email || '');
+  const [isRecovering, setIsRecovering] = useState(false);
 
   const handleRecoverKey = () => {
+    if (!userEmail.trim()) {
+      toast({
+        title: "Email Required",
+        description: "Please enter your email address to proceed with recovery",
+        variant: "destructive",
+      });
+      return;
+    }
     setRecoveryMethod('recover');
     setShowAadhaarVerification(true);
   };
@@ -32,22 +41,26 @@ const LostKeyPage: React.FC<LostKeyPageProps> = ({ onBack, onKeyRecovered }) => 
   };
 
   const handleAadhaarVerification = async (aadhaarDetails: AadhaarDetails) => {
+    setIsRecovering(true);
     try {
-      // In a real implementation, this would verify against stored Aadhaar data
-      // and send the key to the user's email
+      // Verify Aadhaar details with server
+      await AadhaarService.verifyAadhaarForRecovery(userEmail, aadhaarDetails);
+      
       toast({
         title: "Recovery Request Sent",
-        description: "If your Aadhaar details match our records, the decryption key will be sent to your email.",
+        description: "Your identity has been verified. The decryption key has been sent to your email address.",
       });
       
       setShowAadhaarVerification(false);
       onKeyRecovered();
-    } catch (error) {
+    } catch (error: any) {
       toast({
-        title: "Error",
-        description: "Failed to process recovery request",
+        title: "Recovery Failed",
+        description: error.message || "Failed to verify your identity. Please check your details and try again.",
         variant: "destructive",
       });
+    } finally {
+      setIsRecovering(false);
       setShowAadhaarVerification(false);
     }
   };
@@ -78,13 +91,14 @@ const LostKeyPage: React.FC<LostKeyPageProps> = ({ onBack, onKeyRecovered }) => 
   if (showAadhaarVerification) {
     return (
       <AadhaarVerification
-        title="Verify Identity"
-        description="Verify your Aadhaar to recover your decryption key"
+        title="Verify Identity for Key Recovery"
+        description="Use your DigiLocker Aadhaar JSON to verify your identity and recover your decryption key"
         onVerificationComplete={handleAadhaarVerification}
         onCancel={() => {
           setShowAadhaarVerification(false);
           setRecoveryMethod(null);
         }}
+        isLoading={isRecovering}
       />
     );
   }
@@ -145,6 +159,25 @@ const LostKeyPage: React.FC<LostKeyPageProps> = ({ onBack, onKeyRecovered }) => 
           </div>
         ) : (
           <div className="space-y-6">
+            {/* Email Input for Recovery */}
+            <div className="bg-card rounded-lg p-6">
+              <h3 className="text-lg font-semibold mb-4">Email Address</h3>
+              <div className="space-y-2">
+                <Label htmlFor="email">Enter your registered email address</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={userEmail}
+                  onChange={(e) => setUserEmail(e.target.value)}
+                  placeholder="your.email@example.com"
+                  className="w-full"
+                />
+                <p className="text-sm text-muted-foreground">
+                  This should be the same email address you used when setting up your vault.
+                </p>
+              </div>
+            </div>
+
             {/* Recovery Option */}
             <div className="bg-card rounded-lg p-6">
               <div className="flex items-center gap-3 mb-4">
@@ -160,13 +193,43 @@ const LostKeyPage: React.FC<LostKeyPageProps> = ({ onBack, onKeyRecovered }) => 
               <div className="bg-accent rounded-lg p-4 mb-4">
                 <h3 className="font-medium mb-2">Requirements:</h3>
                 <ul className="text-sm text-muted-foreground space-y-1">
-                  <li>• Valid Aadhaar PDF file</li>
-                  <li>• Same details used during initial setup</li>
-                  <li>• Access to your registered email</li>
+                  <li>• Aadhaar JSON file from DigiLocker (same as used during setup)</li>
+                  <li>• Correct email address</li>
+                  <li>• Same Aadhaar details used during initial setup</li>
                 </ul>
               </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <div className="flex items-start gap-2">
+                  <Mail className="w-5 h-5 text-blue-600 mt-0.5" />
+                  <div className="text-sm text-blue-800">
+                    <p className="font-medium mb-1">How it works:</p>
+                    <ol className="list-decimal list-inside space-y-1 text-xs">
+                      <li>Download your Aadhaar JSON from DigiLocker</li>
+                      <li>Upload the JSON file for verification</li>
+                      <li>Our secure server verifies your identity</li>
+                      <li>If verified, your decryption key is sent to your email</li>
+                      <li>Download the key and import it to access your vault</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+                <div className="flex items-start gap-2">
+                  <ExternalLink className="w-5 h-5 text-amber-600 mt-0.5" />
+                  <div className="text-sm text-amber-800">
+                    <p className="font-medium mb-1">Need your Aadhaar JSON?</p>
+                    <p className="text-xs">Visit DigiLocker, sign in with your Aadhaar, and download your Aadhaar document in JSON format.</p>
+                  </div>
+                </div>
+              </div>
               
-              <Button onClick={handleRecoverKey} className="w-full">
+              <Button 
+                onClick={handleRecoverKey} 
+                className="w-full"
+                disabled={!userEmail.trim()}
+              >
                 <Key className="w-4 h-4 mr-2" />
                 Recover Decryption Key
               </Button>
@@ -206,7 +269,8 @@ const LostKeyPage: React.FC<LostKeyPageProps> = ({ onBack, onKeyRecovered }) => 
               <h3 className="font-medium mb-2">Need Help?</h3>
               <p className="text-sm text-muted-foreground">
                 If you're having trouble with key recovery, make sure you're using the same 
-                Aadhaar document that was used during the initial setup of your vault.
+                Aadhaar JSON from DigiLocker and email address that were used during the initial setup of your vault.
+                The recovery process is rate-limited to 5 attempts per 24 hours for security.
               </p>
             </div>
           </div>

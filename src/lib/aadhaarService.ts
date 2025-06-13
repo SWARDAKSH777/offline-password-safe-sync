@@ -46,6 +46,8 @@ export class AadhaarService {
         throw new Error('Invalid JSON file. Please ensure you downloaded the correct Aadhaar JSON from DigiLocker.');
       }
 
+      console.log('JSON parsed successfully, checking structure...');
+
       // Verify it's an Aadhaar JSON from DigiLocker
       if (!this.isValidAadhaarJSON(jsonData)) {
         throw new Error('This does not appear to be a valid Aadhaar JSON file from DigiLocker. Please download the correct file.');
@@ -53,6 +55,13 @@ export class AadhaarService {
 
       // Extract Aadhaar details from JSON
       const details = this.parseAadhaarFromJSON(jsonData);
+      
+      console.log('Extracted details:', {
+        hasName: !!details.name,
+        hasUid: !!details.aadhaarNumber,
+        hasDob: !!details.dob,
+        hasGender: !!details.gender
+      });
       
       if (!details.name || !details.aadhaarNumber) {
         throw new Error('Could not extract required Aadhaar details (Name and Aadhaar Number) from the JSON file.');
@@ -71,16 +80,18 @@ export class AadhaarService {
   }
 
   private static isValidAadhaarJSON(data: any): boolean {
-    // Check for common DigiLocker Aadhaar JSON structure
-    // DigiLocker Aadhaar JSON typically has these patterns:
-    
+    // Check for KycRes structure (DigiLocker format from your example)
+    if (data.KycRes && data.KycRes.UidData) {
+      return true;
+    }
+
     // Check for direct Aadhaar structure
     if (data.uid || data.UID || data.aadhaarNumber || data.AadhaarNumber) {
       return true;
     }
 
-    // Check for nested structure (common in DigiLocker)
-    if (data.KycRes && (data.KycRes.UidData || data.KycRes.Poi || data.KycRes.Poa)) {
+    // Check for other common DigiLocker structures
+    if (data.KycRes && (data.KycRes.Poi || data.KycRes.Poa)) {
       return true;
     }
 
@@ -108,24 +119,52 @@ export class AadhaarService {
       aadhaarNumber: ''
     };
 
-    // Try different JSON structures that DigiLocker might use
+    console.log('Parsing JSON data structure...');
 
-    // Method 1: Direct structure
-    if (data.uid || data.UID) {
+    // Method 1: KycRes structure (from your example - this is the primary one)
+    if (data.KycRes && data.KycRes.UidData) {
+      console.log('Found KycRes.UidData structure');
+      const uidData = data.KycRes.UidData;
+      
+      // Extract UID
+      if (uidData['@uid']) {
+        details.aadhaarNumber = uidData['@uid'].toString().replace(/\s/g, '');
+        console.log('Found UID:', details.aadhaarNumber);
+      }
+      
+      // Extract POI (Proof of Identity) data
+      if (uidData.Poi) {
+        if (uidData.Poi['@name']) {
+          details.name = uidData.Poi['@name'].toString().toUpperCase().trim();
+          console.log('Found name:', details.name);
+        }
+        if (uidData.Poi['@dob']) {
+          details.dob = uidData.Poi['@dob'].toString();
+          console.log('Found DOB:', details.dob);
+        }
+        if (uidData.Poi['@gender']) {
+          details.gender = this.normalizeGender(uidData.Poi['@gender']);
+          console.log('Found gender:', details.gender);
+        }
+      }
+    }
+
+    // Method 2: Direct structure (fallback)
+    if (!details.aadhaarNumber && (data.uid || data.UID)) {
       details.aadhaarNumber = (data.uid || data.UID).toString().replace(/\s/g, '');
     }
-    if (data.name || data.Name) {
+    if (!details.name && (data.name || data.Name)) {
       details.name = (data.name || data.Name).toString().toUpperCase().trim();
     }
-    if (data.dob || data.DOB || data.dateOfBirth) {
+    if (!details.dob && (data.dob || data.DOB || data.dateOfBirth)) {
       details.dob = (data.dob || data.DOB || data.dateOfBirth).toString();
     }
-    if (data.gender || data.Gender) {
+    if (!details.gender && (data.gender || data.Gender)) {
       details.gender = this.normalizeGender(data.gender || data.Gender);
     }
 
-    // Method 2: KycRes structure (common in DigiLocker)
-    if (data.KycRes) {
+    // Method 3: Alternative KycRes structure
+    if (!details.aadhaarNumber && data.KycRes) {
       const kycData = data.KycRes;
       
       if (kycData.UidData && kycData.UidData.uid) {
@@ -133,71 +172,75 @@ export class AadhaarService {
       }
       
       if (kycData.Poi) {
-        if (kycData.Poi.name) {
+        if (!details.name && kycData.Poi.name) {
           details.name = kycData.Poi.name.toString().toUpperCase().trim();
         }
-        if (kycData.Poi.dob) {
+        if (!details.dob && kycData.Poi.dob) {
           details.dob = kycData.Poi.dob.toString();
         }
-        if (kycData.Poi.gender) {
+        if (!details.gender && kycData.Poi.gender) {
           details.gender = this.normalizeGender(kycData.Poi.gender);
         }
       }
     }
 
-    // Method 3: Certificate structure
-    if (data.CertificateData && data.CertificateData.certificate) {
+    // Method 4: Certificate structure
+    if (!details.aadhaarNumber && data.CertificateData && data.CertificateData.certificate) {
       const cert = data.CertificateData.certificate;
       
       if (cert.uid) {
         details.aadhaarNumber = cert.uid.toString().replace(/\s/g, '');
       }
-      if (cert.name) {
+      if (!details.name && cert.name) {
         details.name = cert.name.toString().toUpperCase().trim();
       }
-      if (cert.dob) {
+      if (!details.dob && cert.dob) {
         details.dob = cert.dob.toString();
       }
-      if (cert.gender) {
+      if (!details.gender && cert.gender) {
         details.gender = this.normalizeGender(cert.gender);
       }
     }
 
-    // Method 4: Demographic data structure
-    const demoData = data.demographicData || data.DemographicData;
-    if (demoData) {
-      if (demoData.uid) {
-        details.aadhaarNumber = demoData.uid.toString().replace(/\s/g, '');
-      }
-      if (demoData.name) {
-        details.name = demoData.name.toString().toUpperCase().trim();
-      }
-      if (demoData.dob) {
-        details.dob = demoData.dob.toString();
-      }
-      if (demoData.gender) {
-        details.gender = this.normalizeGender(demoData.gender);
-      }
-    }
-
-    // Method 5: PrintLetterBWPhoto structure
-    const printData = data.PrintLetterBWPhoto || data.printLetterBWPhoto;
-    if (printData) {
-      if (printData.uid) {
-        details.aadhaarNumber = printData.uid.toString().replace(/\s/g, '');
-      }
-      if (printData.name) {
-        details.name = printData.name.toString().toUpperCase().trim();
-      }
-      if (printData.dob) {
-        details.dob = printData.dob.toString();
-      }
-      if (printData.gender) {
-        details.gender = this.normalizeGender(printData.gender);
+    // Method 5: Demographic data structure
+    if (!details.aadhaarNumber) {
+      const demoData = data.demographicData || data.DemographicData;
+      if (demoData) {
+        if (demoData.uid) {
+          details.aadhaarNumber = demoData.uid.toString().replace(/\s/g, '');
+        }
+        if (!details.name && demoData.name) {
+          details.name = demoData.name.toString().toUpperCase().trim();
+        }
+        if (!details.dob && demoData.dob) {
+          details.dob = demoData.dob.toString();
+        }
+        if (!details.gender && demoData.gender) {
+          details.gender = this.normalizeGender(demoData.gender);
+        }
       }
     }
 
-    // Method 6: Try to find fields by searching through all properties recursively
+    // Method 6: PrintLetterBWPhoto structure
+    if (!details.aadhaarNumber) {
+      const printData = data.PrintLetterBWPhoto || data.printLetterBWPhoto;
+      if (printData) {
+        if (printData.uid) {
+          details.aadhaarNumber = printData.uid.toString().replace(/\s/g, '');
+        }
+        if (!details.name && printData.name) {
+          details.name = printData.name.toString().toUpperCase().trim();
+        }
+        if (!details.dob && printData.dob) {
+          details.dob = printData.dob.toString();
+        }
+        if (!details.gender && printData.gender) {
+          details.gender = this.normalizeGender(printData.gender);
+        }
+      }
+    }
+
+    // Method 7: Try to find fields by searching through all properties recursively
     if (!details.aadhaarNumber || !details.name) {
       this.searchForFieldsRecursively(data, details);
     }

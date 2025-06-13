@@ -1,3 +1,4 @@
+
 import CryptoJS from 'crypto-js';
 
 export interface EncryptionKey {
@@ -53,8 +54,9 @@ export class EncryptionService {
       const iv = CryptoJS.lib.WordArray.create(combined.words.slice(0, 4));
       const ciphertext = CryptoJS.lib.WordArray.create(combined.words.slice(4));
       
+      // Fix the decryption call
       const decrypted = CryptoJS.AES.decrypt(
-        { ciphertext: ciphertext },
+        CryptoJS.enc.Base64.stringify(ciphertext),
         key,
         { iv: iv }
       );

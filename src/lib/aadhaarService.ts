@@ -126,10 +126,11 @@ export class AadhaarService {
       console.log('Found KycRes.UidData structure');
       const uidData = data.KycRes.UidData;
       
-      // Extract UID
+      // Extract UID - handle both full and masked UIDs
       if (uidData['@uid']) {
-        details.aadhaarNumber = uidData['@uid'].toString().replace(/\s/g, '');
-        console.log('Found UID:', details.aadhaarNumber);
+        const uid = uidData['@uid'].toString().replace(/\s/g, '');
+        details.aadhaarNumber = uid;
+        console.log('Found UID:', uid);
       }
       
       // Extract POI (Proof of Identity) data
@@ -247,9 +248,10 @@ export class AadhaarService {
 
     // Validate and clean up the extracted data
     if (details.aadhaarNumber) {
-      // Ensure Aadhaar number is 12 digits
-      const cleanAadhaar = details.aadhaarNumber.replace(/\D/g, '');
-      if (cleanAadhaar.length === 12) {
+      // For masked UIDs (like xxxxxxxx0511), accept them as valid
+      // DigiLocker often provides partially masked UIDs for security
+      const cleanAadhaar = details.aadhaarNumber.replace(/\s/g, '');
+      if (cleanAadhaar.length >= 8) { // Accept masked UIDs (at least 8 chars)
         details.aadhaarNumber = cleanAadhaar;
       } else {
         details.aadhaarNumber = '';

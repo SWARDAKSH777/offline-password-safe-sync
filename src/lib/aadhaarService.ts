@@ -344,6 +344,9 @@ export class AadhaarService {
     decryptionKey: any
   ): Promise<void> {
     try {
+      console.log('Storing Aadhaar recovery data for:', userEmail);
+      console.log('Aadhaar number format:', aadhaarDetails.aadhaarNumber);
+      
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/store-aadhaar-recovery`, {
         method: 'POST',
         headers: {

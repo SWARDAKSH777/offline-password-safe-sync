@@ -1,3 +1,4 @@
+
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import * as bcrypt from 'https://deno.land/x/bcrypt@v0.4.1/mod.ts'
@@ -47,8 +48,14 @@ serve(async (req) => {
       throw new Error('Invalid email format')
     }
 
-    // Validate Aadhaar number format (12 digits)
-    if (!/^\d{12}$/.test(aadhaarNumber.replace(/\s/g, ''))) {
+    // Validate Aadhaar number format - accept both full and masked UIDs
+    const cleanAadhaar = aadhaarNumber.replace(/\s/g, '')
+    
+    // Accept either 12-digit full Aadhaar or masked UID (at least 8 characters)
+    const isValidAadhaar = /^\d{12}$/.test(cleanAadhaar) || // Full 12-digit Aadhaar
+                          (cleanAadhaar.length >= 8 && /^[x\d]+\d{4}$/i.test(cleanAadhaar)) // Masked UID ending with 4 digits
+    
+    if (!isValidAadhaar) {
       throw new Error('Invalid Aadhaar number format')
     }
 
@@ -57,7 +64,7 @@ serve(async (req) => {
 
     // Encrypt sensitive data with bcrypt
     const encryptedName = await bcrypt.hash(name.toLowerCase().trim(), salt)
-    const encryptedAadhaarNumber = await bcrypt.hash(aadhaarNumber.replace(/\s/g, ''), salt)
+    const encryptedAadhaarNumber = await bcrypt.hash(cleanAadhaar, salt)
     const encryptedDob = dob ? await bcrypt.hash(dob, salt) : null
     const encryptedGender = gender ? await bcrypt.hash(gender.toLowerCase(), salt) : null
     const encryptedDecryptionKey = await bcrypt.hash(JSON.stringify(decryptionKey), salt)

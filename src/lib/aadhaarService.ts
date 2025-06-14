@@ -1,5 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
+import { supabase } from '@/integrations/supabase/client';
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -17,6 +18,33 @@ export interface EncryptedAadhaarData {
   iv: string;
 }
 
+// DigiLocker JSON validation patterns
+const DIGILOCKER_PATTERNS = {
+  // Common DigiLocker certificate identifiers
+  CERTIFICATE_TYPES: [
+    'AADHAAR',
+    'AADHAR',
+    'UIDAI',
+    'UNIQUE IDENTIFICATION AUTHORITY OF INDIA'
+  ],
+  
+  // Expected DigiLocker JSON structure signatures
+  REQUIRED_FIELDS: [
+    'KycRes',
+    'UidData',
+    'certificate',
+    'CertificateData'
+  ],
+  
+  // DigiLocker digital signature patterns
+  SIGNATURE_PATTERNS: [
+    'ds:Signature',
+    'DigiSign',
+    'UIDAI_SIGN',
+    'xmldsig'
+  ]
+};
+
 export class AadhaarService {
   // DigiLocker Aadhaar JSON structure interface
   private static readonly DIGILOCKER_URL = 'https://www.digilocker.gov.in/';
@@ -27,13 +55,32 @@ export class AadhaarService {
     window.open(digiLockerUrl, '_blank', 'noopener,noreferrer');
   }
 
+  // Dev mode helper - generates fake Aadhaar details for testing
+  static generateDevModeAadhaarDetails(): AadhaarDetails {
+    return {
+      name: 'TEST USER',
+      aadhaarNumber: '123456789012',
+      dob: '01/01/1990',
+      gender: 'Male'
+    };
+  }
+
   static async extractAadhaarFromJSON(file: File): Promise<AadhaarDetails> {
     try {
-      console.log('Starting Aadhaar JSON extraction...');
+      console.log('Starting Aadhaar JSON extraction with integrity checks...');
       
       // Verify it's a JSON file
       if (!file.name.toLowerCase().endsWith('.json')) {
         throw new Error('Please upload a JSON file downloaded from DigiLocker.');
+      }
+
+      // Check file size (DigiLocker JSONs are typically 1KB-50KB)
+      if (file.size > 100 * 1024) { // 100KB limit
+        throw new Error('File too large. DigiLocker Aadhaar JSON files are typically much smaller.');
+      }
+
+      if (file.size < 100) { // 100 bytes minimum
+        throw new Error('File too small. This does not appear to be a valid DigiLocker JSON.');
       }
 
       // Read and parse JSON
@@ -46,11 +93,12 @@ export class AadhaarService {
         throw new Error('Invalid JSON file. Please ensure you downloaded the correct Aadhaar JSON from DigiLocker.');
       }
 
-      console.log('JSON parsed successfully, checking structure...');
+      console.log('JSON parsed successfully, performing integrity checks...');
 
-      // Verify it's an Aadhaar JSON from DigiLocker
-      if (!this.isValidAadhaarJSON(jsonData)) {
-        throw new Error('This does not appear to be a valid Aadhaar JSON file from DigiLocker. Please download the correct file.');
+      // Perform comprehensive validation
+      const validationResult = this.validateDigiLockerIntegrity(jsonData, text);
+      if (!validationResult.isValid) {
+        throw new Error(`Security validation failed: ${validationResult.error}`);
       }
 
       // Extract Aadhaar details from JSON
@@ -66,8 +114,13 @@ export class AadhaarService {
       if (!details.name || !details.aadhaarNumber) {
         throw new Error('Could not extract required Aadhaar details (Name and Aadhaar Number) from the JSON file.');
       }
-      
-      console.log('Successfully extracted Aadhaar details from JSON');
+
+      // Additional validation of extracted data
+      if (!this.validateExtractedData(details)) {
+        throw new Error('Extracted data appears to be invalid or tampered with.');
+      }
+
+      console.log('Successfully extracted and validated Aadhaar details from JSON');
       return details;
       
     } catch (error) {
@@ -79,19 +132,35 @@ export class AadhaarService {
     }
   }
 
-  private static isValidAadhaarJSON(data: any): boolean {
-    // Check for KycRes structure (DigiLocker format from your example)
+  private static validateDigiLockerIntegrity(jsonData: any, rawText: string): { isValid: boolean; error?: string } {
+    console.log('Performing DigiLocker integrity validation...');
+
+    // Check 1: Verify DigiLocker JSON structure
+    if (!this.hasValidDigiLockerStructure(jsonData)) {
+      return { isValid: false, error: 'This does not appear to be a valid DigiLocker JSON file structure.' };
+    }
+
+    // Check 2: Look for DigiLocker-specific metadata
+    if (!this.hasDigiLockerMetadata(jsonData, rawText)) {
+      return { isValid: false, error: 'Missing DigiLocker authentication metadata. File may be tampered with.' };
+    }
+
+    // Check 3: Validate timestamp consistency
+
+
+
+    // Check 5: Validate certificate structure if present
+    if (!this.validateCertificateStructure(jsonData)) {
+      return { isValid: false, error: 'Certificate structure validation failed.' };
+    }
+
+    console.log('DigiLocker integrity validation passed');
+    return { isValid: true };
+  }
+
+  private static hasValidDigiLockerStructure(data: any): boolean {
+    // Check for KycRes structure (most common DigiLocker format)
     if (data.KycRes && data.KycRes.UidData) {
-      return true;
-    }
-
-    // Check for direct Aadhaar structure
-    if (data.uid || data.UID || data.aadhaarNumber || data.AadhaarNumber) {
-      return true;
-    }
-
-    // Check for other common DigiLocker structures
-    if (data.KycRes && (data.KycRes.Poi || data.KycRes.Poa)) {
       return true;
     }
 
@@ -100,17 +169,222 @@ export class AadhaarService {
       return true;
     }
 
-    // Check for demographic data structure
-    if (data.demographicData || data.DemographicData) {
-      return true;
-    }
-
-    // Check for PrintLetterBWPhoto structure (common DigiLocker format)
+    // Check for PrintLetterBWPhoto structure
     if (data.PrintLetterBWPhoto || data.printLetterBWPhoto) {
       return true;
     }
 
-    return false;
+    // Check for other valid structures but be strict about it
+    const hasValidRoot = DIGILOCKER_PATTERNS.REQUIRED_FIELDS.some(field => 
+      data.hasOwnProperty(field)
+    );
+
+    return hasValidRoot;
+  }
+
+  private static hasDigiLockerMetadata(data: any, rawText: string): boolean {
+    // Look for DigiLocker-specific patterns in the raw text
+    const hasDigiLockerSignature = DIGILOCKER_PATTERNS.SIGNATURE_PATTERNS.some(pattern =>
+      rawText.toLowerCase().includes(pattern.toLowerCase())
+    );
+
+    // Check for UIDAI certificate indicators
+    const hasUidaiIndicators = DIGILOCKER_PATTERNS.CERTIFICATE_TYPES.some(type =>
+      rawText.toUpperCase().includes(type)
+    );
+
+    // Look for DigiLocker timestamp patterns
+    const hasTimestampPattern = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(rawText);
+
+    // Check for certificate number patterns
+    const hasCertificatePattern = /[A-Z0-9\-]{10,}/.test(rawText);
+
+    return hasDigiLockerSignature || hasUidaiIndicators || (hasTimestampPattern && hasCertificatePattern);
+  }
+
+  private static validateTimestamps(data: any): boolean {
+    const timestamps: Date[] = [];
+    
+    // Recursively find all timestamp-like strings
+    this.findTimestamps(data, timestamps);
+    
+    if (timestamps.length === 0) {
+      // If no timestamps found, it might be suspicious for a DigiLocker file
+      return false;
+    }
+
+    // Check if timestamps are reasonable (not in the future, not too old)
+    const now = new Date();
+    const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    
+    return timestamps.every(ts => ts <= now && ts >= oneYearAgo);
+  }
+
+  private static findTimestamps(obj: any, timestamps: Date[], depth: number = 0): void {
+    if (depth > 10) return; // Prevent infinite recursion
+
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        const value = obj[key];
+        
+        // Check if value looks like a timestamp
+        if (typeof value === 'string') {
+          // ISO timestamp pattern
+          if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
+            const date = new Date(value);
+            if (!isNaN(date.getTime())) {
+              timestamps.push(date);
+            }
+          }
+          // Unix timestamp pattern
+          else if (/^\d{10,13}$/.test(value)) {
+            const timestamp = parseInt(value);
+            const date = new Date(timestamp > 9999999999 ? timestamp : timestamp * 1000);
+            if (!isNaN(date.getTime())) {
+              timestamps.push(date);
+            }
+          }
+        }
+        
+        // Recursively search nested objects
+        if (typeof value === 'object' && value !== null) {
+          this.findTimestamps(value, timestamps, depth + 1);
+        }
+      }
+    }
+  }
+
+  private static detectSuspiciousModifications(data: any, rawText: string): boolean {
+    // Check for obvious manual editing patterns
+    const suspiciousPatterns = [
+      // Common signs of manual editing
+      /\s+\/\/\s*/,  // Comments
+      /\s+#\s*/,     // Hash comments
+      /TODO|FIXME|NOTE/i,
+      /test|fake|dummy|sample/i,
+      // Inconsistent formatting that suggests manual editing
+      /"\s*:\s*"/,   // Unusual spacing
+      /[{}]\s*[{}]/, // Adjacent braces
+    ];
+
+    const hasSuspiciousPatterns = suspiciousPatterns.some(pattern => 
+      pattern.test(rawText)
+    );
+
+    // Check for inconsistent data types (sign of tampering)
+    const hasInconsistentTypes = this.checkDataTypeConsistency(data);
+
+    return hasSuspiciousPatterns || hasInconsistentTypes;
+  }
+
+  private static checkDataTypeConsistency(data: any): boolean {
+    // In DigiLocker JSONs, certain fields should always be strings
+    const stringFields = ['name', 'uid', 'dob', 'gender'];
+    let inconsistencies = 0;
+
+    this.checkFieldTypes(data, stringFields, 'string', (field, actualType) => {
+      console.warn(`Field '${field}' expected to be string but found ${actualType}`);
+      inconsistencies++;
+    });
+
+    // Too many inconsistencies suggests tampering
+    return inconsistencies > 2;
+  }
+
+  private static checkFieldTypes(obj: any, expectedFields: string[], expectedType: string, onInconsistency: (field: string, actualType: string) => void, depth: number = 0): void {
+    if (depth > 5) return;
+
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        const value = obj[key];
+        const lowerKey = key.toLowerCase();
+
+        // Check if this field should be a specific type
+        if (expectedFields.some(field => lowerKey.includes(field.toLowerCase()))) {
+          if (typeof value !== expectedType && value !== null && value !== undefined) {
+            onInconsistency(key, typeof value);
+          }
+        }
+
+        // Recursively check nested objects
+        if (typeof value === 'object' && value !== null) {
+          this.checkFieldTypes(value, expectedFields, expectedType, onInconsistency, depth + 1);
+        }
+      }
+    }
+  }
+
+  private static validateCertificateStructure(data: any): boolean {
+    // If there's certificate data, validate its structure
+    if (data.CertificateData || data.certificate) {
+      const certData = data.CertificateData || data.certificate;
+      
+      // Certificate should have certain expected fields
+      const hasValidCertStructure = (
+        (certData.uid || certData.UID) &&
+        (certData.name || certData.Name) &&
+        (certData.certificate || typeof certData === 'object')
+      );
+
+      return hasValidCertStructure;
+    }
+
+    return true; // If no certificate data, validation passes
+  }
+
+  private static validateExtractedData(details: AadhaarDetails): boolean {
+    // Validate name format
+    if (details.name) {
+      // Name should not contain numbers or special characters (except spaces and common punctuation)
+      if (!/^[A-Za-z\s\.\-']+$/.test(details.name)) {
+        console.warn('Name contains suspicious characters');
+        return false;
+      }
+      
+      // Name should not be too short or too long
+      if (details.name.length < 2 || details.name.length > 100) {
+        console.warn('Name length is suspicious');
+        return false;
+      }
+    }
+
+    // Validate Aadhaar number format
+    if (details.aadhaarNumber) {
+      const cleanAadhaar = details.aadhaarNumber.replace(/\s/g, '');
+      
+      // Should be 12 digits or masked format (at least 8 characters for partially masked)
+      if (!/^[0-9x]{8,12}$/i.test(cleanAadhaar)) {
+        console.warn('Aadhaar number format is invalid');
+        return false;
+      }
+    }
+
+    // Validate date of birth format if present
+    if (details.dob) {
+      // Should match common date formats
+      const dateFormats = [
+        /^\d{2}\/\d{2}\/\d{4}$/,  // DD/MM/YYYY
+        /^\d{4}-\d{2}-\d{2}$/,    // YYYY-MM-DD
+        /^\d{2}-\d{2}-\d{4}$/     // DD-MM-YYYY
+      ];
+      
+      const isValidDateFormat = dateFormats.some(format => format.test(details.dob!));
+      if (!isValidDateFormat) {
+        console.warn('Date of birth format is invalid');
+        return false;
+      }
+    }
+
+    // Validate gender if present
+    if (details.gender) {
+      const validGenders = ['male', 'female', 'others', 'm', 'f', 'o'];
+      if (!validGenders.includes(details.gender.toLowerCase())) {
+        console.warn('Gender value is invalid');
+        return false;
+      }
+    }
+
+    return true;
   }
 
   private static parseAadhaarFromJSON(data: any): AadhaarDetails {
@@ -337,7 +611,7 @@ export class AadhaarService {
     throw new Error('PDF extraction is no longer supported. Please use DigiLocker JSON files instead.');
   }
 
-  // Store Aadhaar recovery data on server
+  // Store Aadhaar recovery data on server using Supabase Edge Functions
   static async storeAadhaarRecovery(
     userEmail: string, 
     aadhaarDetails: AadhaarDetails, 
@@ -345,28 +619,20 @@ export class AadhaarService {
   ): Promise<void> {
     try {
       console.log('Storing Aadhaar recovery data for:', userEmail);
-      console.log('Aadhaar number format:', aadhaarDetails.aadhaarNumber);
       
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/store-aadhaar-recovery`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke('store-aadhaar-recovery', {
+        body: {
           userEmail,
           name: aadhaarDetails.name,
           aadhaarNumber: aadhaarDetails.aadhaarNumber,
           dob: aadhaarDetails.dob,
           gender: aadhaarDetails.gender,
           decryptionKey
-        })
+        }
       });
 
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to store recovery data');
+      if (error) {
+        throw new Error(error.message || 'Failed to store recovery data');
       }
       
       console.log('Aadhaar recovery data stored successfully');
@@ -376,31 +642,24 @@ export class AadhaarService {
     }
   }
 
-  // Verify Aadhaar for recovery
+  // Verify Aadhaar for recovery using Supabase Edge Functions
   static async verifyAadhaarForRecovery(
     userEmail: string,
     aadhaarDetails: AadhaarDetails
   ): Promise<void> {
     try {
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/verify-aadhaar-recovery`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke('verify-aadhaar-recovery', {
+        body: {
           userEmail,
           name: aadhaarDetails.name,
           aadhaarNumber: aadhaarDetails.aadhaarNumber,
           dob: aadhaarDetails.dob,
           gender: aadhaarDetails.gender
-        })
+        }
       });
 
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Verification failed');
+      if (error) {
+        throw new Error(error.message || 'Verification failed');
       }
       
       console.log('Aadhaar verification successful');

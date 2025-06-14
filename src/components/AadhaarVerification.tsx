@@ -1,7 +1,6 @@
-
 import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Upload, FileText, AlertCircle, CheckCircle, ArrowLeft, ExternalLink, Download } from 'lucide-react';
+import { Upload, FileText, AlertCircle, CheckCircle, ArrowLeft, ExternalLink, Download, Bug } from 'lucide-react';
 import { AadhaarService, AadhaarDetails } from '@/lib/aadhaarService';
 import { useToast } from '@/hooks/use-toast';
 
@@ -25,6 +24,20 @@ const AadhaarVerification: React.FC<AadhaarVerificationProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [verificationStep, setVerificationStep] = useState<'instructions' | 'upload' | 'processing' | 'success'>('instructions');
   const [extractedDetails, setExtractedDetails] = useState<AadhaarDetails | null>(null);
+
+  // Check if we're in development mode
+  const isDevelopment = import.meta.env.DEV;
+
+  const handleDevModeSkip = () => {
+    const devDetails = AadhaarService.generateDevModeAadhaarDetails();
+    setExtractedDetails(devDetails);
+    setVerificationStep('success');
+    toast({
+      title: "Dev Mode",
+      description: "Using fake Aadhaar details for development",
+      variant: "default",
+    });
+  };
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -124,6 +137,28 @@ const AadhaarVerification: React.FC<AadhaarVerificationProps> = ({
           <h1 className="text-2xl font-bold text-foreground mb-2">{title}</h1>
           <p className="text-muted-foreground">{description}</p>
         </div>
+
+        {/* Dev Mode Skip Button */}
+        {isDevelopment && verificationStep === 'instructions' && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <Bug className="w-4 h-4 text-amber-600" />
+              <span className="text-sm font-medium text-amber-800">Development Mode</span>
+            </div>
+            <p className="text-xs text-amber-700 mb-3">
+              Skip Aadhaar verification for testing purposes
+            </p>
+            <Button
+              onClick={handleDevModeSkip}
+              variant="outline"
+              size="sm"
+              className="w-full border-amber-300 text-amber-700 hover:bg-amber-100"
+            >
+              <Bug className="w-4 h-4 mr-2" />
+              Skip Aadhaar (Dev Mode)
+            </Button>
+          </div>
+        )}
 
         {verificationStep === 'instructions' && (
           <div className="space-y-4">

@@ -105,24 +105,39 @@ export const useImportVaultFlow = ({
 
   const handleLostDecryptionKey = async (vaultFile: File, aadhaarDetails: AadhaarDetails) => {
     try {
-      if (!user) return;
+      if (!user) {
+        onError('User authentication required for recovery');
+        return;
+      }
+
+      setIsImporting(true);
+      onError('');
 
       const vaultText = await vaultFile.text();
       const vault = JSON.parse(vaultText);
 
-      // For DigiLocker JSON-based recovery, we now use server-side verification
+      // Use server-side verification with email recovery
       try {
         await AadhaarService.verifyAadhaarForRecovery(user.email || '', aadhaarDetails);
         
         toast({
-          title: "Identity Verified",
-          description: "Aadhaar verification successful! The decryption key will be sent to your email.",
+          title: "Identity Verified Successfully",
+          description: "Your decryption key has been sent to your registered email address. Please check your inbox and use the key to recover your vault.",
+          duration: 8000,
         });
+        
+        // Clear any previous errors
+        onError('');
+        
       } catch (verifyError: any) {
-        onError(verifyError.message || 'Failed to verify Aadhaar details');
+        console.error('Aadhaar verification failed:', verifyError);
+        onError(verifyError.message || 'Failed to verify Aadhaar details. Please ensure the information matches your stored records.');
       }
-    } catch (error) {
-      onError('Failed to process Aadhaar verification');
+    } catch (error: any) {
+      console.error('Recovery process failed:', error);
+      onError('Failed to process recovery request. Please try again.');
+    } finally {
+      setIsImporting(false);
     }
   };
 
